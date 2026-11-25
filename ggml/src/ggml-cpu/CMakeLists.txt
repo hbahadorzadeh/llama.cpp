@@ -89,6 +89,18 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
                     ggml-cpu/llamafile/sgemm.h)
     endif()
 
+    if (GGML_CIX)
+        if (NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT GGML_SYSTEM_ARCH STREQUAL "ARM" OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+            message(FATAL_ERROR "GGML_CIX requires 64-bit ARM Linux")
+        endif()
+        find_path(GGML_CIX_INCLUDE_DIR cix_noe_standard_api.h HINTS "${GGML_CIX_ROOT}/include/npu" /usr/share/cix/include/npu REQUIRED)
+        find_library(GGML_CIX_LIBRARY noe HINTS "${GGML_CIX_ROOT}/lib" /usr/share/cix/lib REQUIRED)
+        list(APPEND GGML_CPU_SOURCES ggml-cpu/cix.cpp ggml-cpu/cix.h)
+        target_include_directories(${GGML_CPU_NAME} SYSTEM PRIVATE "${GGML_CIX_INCLUDE_DIR}")
+        target_link_libraries(${GGML_CPU_NAME} PRIVATE "${GGML_CIX_LIBRARY}")
+        target_compile_definitions(${GGML_CPU_NAME} PRIVATE GGML_USE_CIX)
+    endif()
+
     if (GGML_CPU_HBM)
         find_library(memkind memkind REQUIRED)
 

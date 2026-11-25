@@ -6,6 +6,10 @@
 #include "ggml-impl.h"
 #include "amx/amx.h"
 
+#ifdef GGML_USE_CIX
+#    include "cix.h"
+#endif
+
 #include <cctype>
 #include <string>
 #include <vector>
@@ -107,6 +111,9 @@ struct ggml_backend_cpu_context {
     void *              abort_callback_data;
 
     bool                use_ref;  // use reference implementation
+#ifdef GGML_USE_CIX
+    ggml_cix_projection cix;
+#endif
 };
 
 static const char * ggml_backend_cpu_get_name(ggml_backend_t backend) {
@@ -167,7 +174,7 @@ static enum ggml_status ggml_backend_cpu_graph_plan_compute(ggml_backend_t backe
     GGML_UNUSED(backend);
 }
 
-static enum ggml_status ggml_backend_cpu_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
+static enum ggml_status ggml_backend_cpu_graph_compute_cpu(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
     struct ggml_backend_cpu_context * cpu_ctx = (struct ggml_backend_cpu_context *)backend->context;
 
     struct ggml_cplan cplan = ggml_graph_plan(cgraph, cpu_ctx->n_threads, cpu_ctx->threadpool);
@@ -188,6 +195,16 @@ static enum ggml_status ggml_backend_cpu_graph_compute(ggml_backend_t backend, s
     cplan.use_ref             = cpu_ctx->use_ref;
 
     return ggml_graph_compute(cgraph, &cplan);
+}
+
+static enum ggml_status ggml_backend_cpu_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
+#ifdef GGML_USE_CIX
+    auto * cpu_ctx = static_cast<ggml_backend_cpu_context *>(backend->context);
+    if (!cpu_ctx->use_ref && cpu_ctx->cix.enabled()) {
+        return cpu_ctx->cix.compute(backend, cgraph, ggml_backend_cpu_graph_compute_cpu);
+    }
+#endif
+    return ggml_backend_cpu_graph_compute_cpu(backend, cgraph);
 }
 
 static const struct ggml_backend_i ggml_backend_cpu_i = {

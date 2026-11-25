@@ -905,6 +905,39 @@ For build instructions and usage examples, refer to [OPENVINO.md](backend/OPENVI
 Check [README.md](./backend/snapdragon/README.md) for target specific build and run info.
 
 ---
+## CIX Zhouyi (experimental)
+
+The optional CIX NOE path targets the Zhouyi X2 AIPU on 64-bit ARM Linux. It evaluates one single-token, signed INT8 projection with a vendor-compiled graph. The supported projection is `blk.0.ffn_gate.weight` of Qwen3-4B with Q4_K weights and dimensions 2560 by 9728. All other nodes use their regular backend.
+
+Build with an ARM64 NOE SDK prefix containing `include/npu/cix_noe_standard_api.h` and `lib/libnoe.so`:
+
+```sh
+cmake -S . -B build-cix -DGGML_CIX=ON -DGGML_CIX_ROOT=/path/to/cix
+cmake --build build-cix --target llama-server
+```
+
+Use a CixBuilder graph for `X2_1204MP3` with the dequantized gate weights baked in, one signed INT8 input, and one signed INT8 output. Calibrate using activations captured at that gate. Keep a raw copy of the original Q4_K tensor from the same GGUF next to the graph. With the repo's `gguf-py` package installed, the raw tensor can be extracted with:
+
+```sh
+python3 - model.gguf gate.q4_k <<'PYEOF'
+import sys
+from gguf import GGUFReader
+
+reader = GGUFReader(sys.argv[1])
+gate = next(t for t in reader.tensors if t.name == "blk.0.ffn_gate.weight")
+gate.data.tofile(sys.argv[2])
+PYEOF
+```
+
+Run with a working `/dev/aipu` and the same GGUF used to compile the projection:
+
+```sh
+GGML_CIX_GRAPH=/path/to/gate.cix GGML_CIX_WEIGHTS=/path/to/gate.q4_k \
+  ./build-cix/bin/llama-server -m model.gguf --no-repack -ngl 0
+```
+
+Supply the graph and weight file as a trusted pair. GGML compares the active Q4_K tensor to the raw reference before offloading and falls back to the CPU if the weights differ or NOE returns an error. A successful dispatch prints `CIX: Qwen layer 0 FFN gate executed on NPU`. This path is disabled by default. The fixed graph uses different quantization from GGML and can change the output. Full-model accuracy and speed improvements have yet to be established.
+
 ## Notes about GPU-accelerated backends
 
 The GPU may still be used to accelerate some parts of the computation even when using the `-ngl 0` option. You can fully disable GPU acceleration by using `--device none`.
